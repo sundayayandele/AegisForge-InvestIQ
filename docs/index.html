@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="AegisForge InvestIQ local-first paper trading demo">
+<title>AegisForge InvestIQ | Paper Trading Demo</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,sans-serif;color:#e8edf8;background:#0b1220;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0}main{max-width:1180px;margin:auto;padding:24px}
+header,.flex{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:1.6rem}h2{font-size:1.1rem;margin:0 0 16px}.muted{color:#9aaac5}
+.badge{padding:7px 12px;border-radius:30px;background:#3b2b11;color:#ffd98b;font-size:.8rem}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:24px 0}
+.card{background:#141e31;border:1px solid #2b3951;border-radius:16px;padding:20px;min-width:0}
+.metric{font-size:1.8rem;font-weight:700;margin:8px 0}.layout{display:grid;grid-template-columns:1.5fr 1fr;gap:14px}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:11px 8px;border-bottom:1px solid #29364d}th{color:#9aaac5;font-weight:500}td:last-child{text-align:right}
+input,select,button{font:inherit;padding:11px 12px;border:1px solid #465571;border-radius:9px;background:#0d1728;color:#fff}
+input,select{width:100%;margin:5px 0 12px}button{cursor:pointer;background:#2962db;border-color:#2962db;font-weight:600}button:hover{filter:brightness(1.12)}
+button.secondary{background:#26364e;border-color:#40516a}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #81b4ff}
+form{margin:0}.status{min-height:24px;color:#a4e6b9}.error{color:#ffacac}.small{font-size:.82rem}
+.scroll{overflow-x:auto}ul{padding-left:20px}li{margin:8px 0}.positive{color:#8de2b4}.negative{color:#ff9e9e}
+footer{margin:26px 0;color:#9aaac5;font-size:.85rem}
+@media(max-width:780px){.layout,.grid{grid-template-columns:1fr}main{padding:14px}th,td{padding:9px 5px;font-size:.85rem}}
+</style></head>
+<body><main>
+<header><div><h1>🛡 AegisForge InvestIQ</h1><div class="muted">Research watchlist · Local paper-trading sandbox</div></div><span class="badge">SIMULATED DATA · NO REAL ORDERS</span></header>
+<section class="grid" aria-label="Portfolio summary">
+<div class="card"><div class="muted">Available cash</div><div class="metric" id="cash">$1,000.00</div></div>
+<div class="card"><div class="muted">Portfolio value</div><div class="metric" id="portfolio">$1,000.00</div></div>
+<div class="card"><div class="muted">Unrealized P/L</div><div class="metric" id="pnl">$0.00</div></div>
+</section>
+<div class="layout"><section class="card"><h2>15-stock watchlist</h2><p class="muted small">Fixed illustrative prices for repeatable testing; not live quotes or investment advice.</p>
+<div class="scroll"><table><thead><tr><th>Symbol</th><th>Demo price</th><th>Held</th><th>Value</th></tr></thead><tbody id="watchlist"></tbody></table></div></section>
+<div><section class="card"><h2>Simulate a trade</h2><form id="tradeForm">
+<label for="symbol">Stock</label><select id="symbol" required></select>
+<label for="side">Action</label><select id="side"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+<label for="quantity">Shares (whole number)</label><input id="quantity" type="number" min="1" step="1" value="1" required>
+<button type="submit">Execute simulated trade</button></form><p class="status" role="status" id="tradeStatus"></p></section>
+<section class="card" style="margin-top:14px"><h2>Price alert sandbox</h2><form id="alertForm">
+<label for="alertSymbol">Stock</label><select id="alertSymbol"></select>
+<label for="threshold">Alert threshold ($)</label><input id="threshold" type="number" min="0.01" step="0.01" required>
+<button type="submit">Add demo alert</button></form><ul id="alerts"></ul></section>
+<section class="card" style="margin-top:14px"><h2>GUI self-test</h2><p class="muted small">Checks watchlist, portfolio math, buy/sell validation and local persistence without placing any orders.</p>
+<button id="runTests" type="button">Run GUI self-tests</button> <button class="secondary" id="reset" type="button">Reset demo</button><p id="testStatus" role="status"></p></section></div></div>
+<section class="card" style="margin-top:14px"><h2>Simulated trade history</h2><div class="scroll"><table><thead><tr><th>Action</th><th>Symbol</th><th>Shares</th><th>Price</th><th>Time</th></tr></thead><tbody id="history"></tbody></table></div></section>
+<footer>All state is stored in this browser only (localStorage). This is a static GitHub Pages demo; it is not connected to the FastAPI server, Finnhub or a brokerage. Never enter credentials here.</footer>
+</main>
+<script>
+"use strict";
+const PRICES=Object.freeze({NVDA:140,IONQ:18,TSM:190,MSFT:420,AVGO:180,MU:105,CRWD:310,RKLB:13,OKLO:25,CEG:245,ASML:750,VST:125,ROK:270,SOFI:12,ENPH:85});
+const KEY="aegisforge-investiq-demo-v1",money=n=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(n);
+const fresh=()=>({cash:1000,holdings:{},trades:[],alerts:[]});
+function valid(s){return s&&Number.isFinite(s.cash)&&s.cash>=-1e-7&&s.holdings&&Array.isArray(s.trades)&&Array.isArray(s.alerts)}
+function load(){try{const s=JSON.parse(localStorage.getItem(KEY));return valid(s)?s:fresh()}catch{return fresh()}}
+let state=load();
+function persist(){localStorage.setItem(KEY,JSON.stringify(state))}
+function portfolio(s){return s.cash+Object.entries(s.holdings).reduce((sum,[symbol,qty])=>sum+(PRICES[symbol]||0)*qty,0)}
+function trade(s,symbol,side,qty){if(!Object.hasOwn(PRICES,symbol))throw Error("Unknown symbol");if(!Number.isSafeInteger(qty)||qty<=0)throw Error("Enter a positive whole number of shares");
+const price=PRICES[symbol],cost=price*qty;if(!Number.isFinite(cost))throw Error("Invalid amount");
+if(side==="buy"){if(cost>s.cash+1e-7)throw Error("Insufficient demo cash");s.cash-=cost;s.holdings[symbol]=(s.holdings[symbol]||0)+qty}
+else if(side==="sell"){if((s.holdings[symbol]||0)<qty)throw Error("Not enough shares to sell");s.cash+=cost;s.holdings[symbol]-=qty;if(s.holdings[symbol]===0)delete s.holdings[symbol]}
+else throw Error("Invalid trade action");
+s.trades.unshift({symbol,side,qty,price,at:new Date().toISOString()});return s}
+function render(){document.getElementById("cash").textContent=money(state.cash);document.getElementById("portfolio").textContent=money(portfolio(state));const pl=portfolio(state)-1000;const p=document.getElementById("pnl");p.textContent=money(pl);p.className="metric "+(pl>=0?"positive":"negative");
+const tbody=document.getElementById("watchlist");tbody.replaceChildren();for(const [symbol,price] of Object.entries(PRICES)){const qty=state.holdings[symbol]||0;const tr=document.createElement("tr");for(const value of [symbol,money(price),String(qty),money(price*qty)]){const td=document.createElement("td");td.textContent=value;tr.append(td)}tbody.append(tr)}
+const history=document.getElementById("history");history.replaceChildren();for(const t of state.trades.slice(0,30)){const tr=document.createElement("tr");for(const v of [t.side.toUpperCase(),t.symbol,String(t.qty),money(t.price),new Date(t.at).toLocaleString()]){const td=document.createElement("td");td.textContent=v;tr.append(td)}history.append(tr)}
+const alerts=document.getElementById("alerts");alerts.replaceChildren();for(const a of state.alerts){const li=document.createElement("li");li.textContent=a.symbol+" ≥ "+money(a.threshold)+(PRICES[a.symbol]>=a.threshold?" · THRESHOLD MET":" · not met");alerts.append(li)}}
+for(const id of ["symbol","alertSymbol"]){const sel=document.getElementById(id);for(const symbol of Object.keys(PRICES)){const opt=document.createElement("option");opt.value=symbol;opt.textContent=symbol+" · "+money(PRICES[symbol]);sel.append(opt)}}
+document.getElementById("tradeForm").addEventListener("submit",e=>{e.preventDefault();const status=document.getElementById("tradeStatus");try{const symbol=document.getElementById("symbol").value,side=document.getElementById("side").value,qty=Number(document.getElementById("quantity").value);trade(state,symbol,side,qty);persist();render();status.className="status";status.textContent="Simulated "+side+" completed: "+qty+" "+symbol}catch(err){status.className="status error";status.textContent=err.message}});
+document.getElementById("alertForm").addEventListener("submit",e=>{e.preventDefault();const symbol=document.getElementById("alertSymbol").value,threshold=Number(document.getElementById("threshold").value);if(!Number.isFinite(threshold)||threshold<=0)return;state.alerts.push({symbol,threshold});persist();render();e.target.reset()});
+document.getElementById("reset").addEventListener("click",()=>{if(!confirm("Reset all simulated trades and alerts in this browser?"))return;state=fresh();persist();render();document.getElementById("tradeStatus").textContent="Demo reset"});
+document.getElementById("runTests").addEventListener("click",()=>{const checks=[];function check(name,fn){try{if(!fn())throw Error("Assertion failed");checks.push("PASS "+name)}catch(err){checks.push("FAIL "+name+": "+err.message)}}
+check("15 watchlist symbols",()=>Object.keys(PRICES).length===15);check("Initial portfolio is $1,000",()=>portfolio(fresh())===1000);
+check("Buy decreases cash and increases holdings",()=>{const s=fresh();trade(s,"SOFI","buy",2);return s.cash===976&&s.holdings.SOFI===2&&portfolio(s)===1000});
+check("Sell restores cash",()=>{const s=fresh();trade(s,"SOFI","buy",2);trade(s,"SOFI","sell",2);return s.cash===1000&&!s.holdings.SOFI});
+check("Overspending rejected",()=>{try{trade(fresh(),"ASML","buy",2);return false}catch{return true}});
+check("Overselling rejected",()=>{try{trade(fresh(),"NVDA","sell",1);return false}catch{return true}});
+check("Browser storage roundtrip",()=>{const raw=JSON.stringify(state);return valid(JSON.parse(raw))});
+const el=document.getElementById("testStatus");el.textContent=checks.join(" | ");el.className=checks.some(x=>x.startsWith("FAIL"))?"error":"positive"});
+render();
+</script></body></html>
