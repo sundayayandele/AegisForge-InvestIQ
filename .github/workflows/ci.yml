@@ -1,0 +1,65 @@
+name: InvestIQ CI
+on:
+  push:
+    branches: [main, 'ci/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ENABLE_SCHEDULER: "0"
+      DB_PATH: "${{ runner.temp }}/investiq-test.db"
+      FINNHUB_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Syntax validation
+        run: python -m compileall -q app tests
+      - name: Run API tests
+        run: python -m pytest -q tests
+
+  docker-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t investiq:ci .
+      - name: Start API without external integrations
+        run: |
+          docker run -d --name investiq-ci -p 127.0.0.1:8000:8000 \
+            -e ENABLE_SCHEDULER=0 -e DB_PATH=/tmp/investiq-ci.db investiq:ci
+      - name: Wait for API and check watchlist
+        run: |
+          python - <<'PY'
+          import json,time,urllib.request
+          for attempt in range(40):
+              try:
+                  with urllib.request.urlopen("http://127.0.0.1:8000/api/quotes", timeout=3) as r:
+                      data=json.load(r)
+                  assert len(data)==15, f"Expected 15 tickers, got {len(data)}"
+                  assert {x["symbol"] for x in data}==set("NVDA IONQ TSM MSFT AVGO MU CRWD RKLB OKLO CEG ASML VST ROK SOFI ENPH".split())
+                  print("PASS: API returned all 15 watchlist symbols")
+                  break
+              except Exception:
+                  if attempt==39: raise
+                  time.sleep(2)
+          PY
+      - name: Container logs
+        if: always()
+        run: docker logs investiq-ci || true
+      - name: Cleanup
+        if: always()
+        run: docker rm -f investiq-ci || true
