@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 10
     env:
       ENABLE_SCHEDULER: "0"
-      DB_PATH: "${{ runner.temp }}/investiq-test.db"
+      DB_PATH: /tmp/investiq-test.db
       FINNHUB_API_KEY: ""
     steps:
       - uses: actions/checkout@v4
