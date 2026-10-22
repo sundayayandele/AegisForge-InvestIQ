@@ -1,0 +1,37 @@
+name: InvestIQ Pages GUI Tests
+on:
+  push:
+    branches: [main, 'feature/github-pages-dashboard']
+    paths: ['docs/**', 'tests/gui/**', '.github/workflows/pages-gui.yml']
+  pull_request:
+    branches: [main]
+    paths: ['docs/**', 'tests/gui/**', '.github/workflows/pages-gui.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Playwright
+        run: |
+          npm install --no-save @playwright/test@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run browser tests
+        run: |
+          python3 -m http.server 8765 --directory docs > /tmp/investiq-pages-server.log 2>&1 &
+          npx playwright test tests/gui/dashboard.spec.cjs --reporter=line
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8765
+      - name: Upload test report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure
+          path: test-results/
+          if-no-files-found: ignore
